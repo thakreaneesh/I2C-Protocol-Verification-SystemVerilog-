@@ -1,52 +1,69 @@
 # I2C Protocol Verification (SystemVerilog)
 
-**Author:** Aneesh Rekhalal Thakre  
-**Platform:** SystemVerilog, Vivado / ModelSim / VCS / XSIM compatible  
-**Summary:**  
-This repository contains an RTL implementation of an I2C Master–Slave pair and a class-based verification environment (Generator, Driver, Monitor, Scoreboard) using constrained-random tests to validate START/STOP handling, address phase, read/write cycles, and ACK/NACK signaling.
+## Overview
+This project implements and verifies a basic **I2C (Inter-Integrated Circuit)** protocol using SystemVerilog.  
+It includes:
 
----
+- **I2C Master** (generates START/STOP, address, R/W, and data)
+- **I2C Slave** (responds to master and stores/returns data)
+- **UVM-style Verification Environment** (Generator, Driver, Monitor, Scoreboard)
 
-## Table of Contents
-
-- [Project Overview](#project-overview)  
-- [Features](#features)  
-- [Repository Structure](#repository-structure)  
-- [Design Details](#design-details)  
-- [Verification Environment](#verification-environment)  
-- [How to Run Simulations](#how-to-run-simulations)  
-- [Waveform & Coverage](#waveform--coverage)  
-- [Example Testcases](#example-testcases)  
-- [Contributing](#contributing)  
-- [License](#license)
-
----
-
-## Project Overview
-
-This project implements:
-- An RTL I2C Master and I2C Slave written in SystemVerilog using FSMs.
-- A class-based verification environment containing:
-  - **Generator**: creates constrained-random transactions (start, address, read/write, stop, ACK/NACK patterns).
-  - **Driver**: drives the DUT via an interface (SCL, SDA).
-  - **Monitor**: observes bus activity and converts it into transaction objects for checking.
-  - **Scoreboard**: memory-backed checker that tracks expected data and verifies read/write correctness.
-
-The goal is to validate timing, protocol behavior, and corner cases using functional coverage and assertions.
+The goal is to verify correct communication between Master and Slave using a **self-checking testbench**.
 
 ---
 
 ## Features
 
-- Master/Slave RTL (SystemVerilog FSM-based)
-- Interface abstraction for SDA & SCL (bidirectional SDA handling)
-- Constrained-random transaction generation
-- Memory-backed scoreboard for end-to-end data validation
-- Assertion-based checks for START/STOP, ACK/NACK, and bus arbitration
-- Testbench scripts for ModelSim/XSIM/VCS
-- Waveform-friendly signal naming for easy debugging
+### Master
+- Generates **START** and **STOP** conditions  
+- Sends **7-bit address + R/W bit**  
+- Supports **read and write** cycles  
+- Handles **ACK/NACK** responses  
+- Shifts data **MSB first**  
+- Drives **SCL** and **SDA**
+
+### Slave
+- Detects START condition  
+- Performs 7-bit address match  
+- Generates **ACK/NACK**  
+- Receives or transmits data bytes  
+- Stores received data in internal memory  
+- Releases SDA when not driving
 
 ---
 
-## Repository Structure
+## Testbench Environment
+- **Generator:** Creates randomized I2C transactions (address, read/write, data)  
+- **Driver:** Drives SDA/SCL signals using the I2C interface  
+- **Monitor:** Observes bus activity and reconstructs transactions  
+- **Scoreboard:** Compares expected data with received data  
+- Uses **mailboxes/events** for synchronization between components  
+
+---
+
+## Simulation Flow
+
+### 1. Reset Phase
+Driver applies reset and initializes all DUT signals.
+
+### 2. Transaction Generation
+Generator creates random:
+- Addresses  
+- Read/Write operations  
+- Data bytes  
+
+### 3. Communication
+Master performs:  
+START → Address → R/W → Data → STOP  
+Slave responds with ACK/NACK and returns data in read mode.
+
+### 4. Monitoring & Checking
+- Monitor captures bus signals  
+- Scoreboard checks:
+  - Address correctness  
+  - Read/Write behavior  
+  - Data accuracy  
+
+### 5. Result
+Console prints:
 
