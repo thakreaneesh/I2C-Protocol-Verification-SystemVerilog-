@@ -1,10 +1,12 @@
+/////////// Master
+
 `timescale 1ns / 1ps
 
 module i2c_master( input clk, rst , newd,
 input [6:0] addr,
-input op,
+input op,//1-r
 inout sda,
-inout scl,
+output scl,
 input [7:0] din,
 output [7:0] dout,
 output reg busy, ack_err, done
@@ -13,12 +15,12 @@ output reg busy, ack_err, done
 reg scl_t = 0;
 reg sda_t = 0;
 
-parameter sys_freq = 40000000;
-parameter i2c_freq = 100000;
+parameter sys_freq = 40000000; //40 MHz
+parameter i2c_freq = 100000;  //// 100k
 
 
-parameter clk_count4 = (sys_freq/i2c_freq);
-parameter clk_count1 = clk_count4/4;
+parameter clk_count4 = (sys_freq/i2c_freq);/// 400
+parameter clk_count1 = clk_count4/4; ///100
 
 integer count1 = 0;
 reg i2c_clk = 0;
@@ -30,7 +32,13 @@ begin
       if(rst)
        begin
        pulse <= 0;
+       count1 <= 0;
        end
+       else if (busy == 1'b0) ///pulse count start only after newd
+        begin
+        pulse <= 0;
+        count1 <= 0;
+        end
       else if(count1  == clk_count1 - 1)
        begin
        pulse <= 1;
@@ -61,13 +69,11 @@ end
 reg [3:0] bitcount = 0;
 reg [7:0] data_addr   = 0, data_tx = 0;
 reg r_ack = 0;
-reg r_scl = 0;
 reg [7:0] rx_data = 0;
 reg sda_en = 0;
-reg scl_en = 0;
 
 
-typedef enum logic [3:0] {idle = 0, start = 1, write_addr = 2, ack_1 = 3, write_data = 4, read_data = 5, stop = 6, ack_2 =7, master_ack = 8, wait_stretch = 9} state_type;
+typedef enum logic [3:0] {idle = 0, start = 1, write_addr = 2, ack_1 = 3, write_data = 4, read_data = 5, stop = 6, ack_2 =7, master_ack = 8} state_type;
 state_type state = idle;
 
 always@(posedge clk)
@@ -79,13 +85,10 @@ begin
     data_tx    <= 0;
     scl_t <= 1;
     sda_t <= 1;
-    scl_en <= 1'b0;
-    sda_en <= 1'b0;
     state <= idle;
     busy  <= 1'b0;
     ack_err <= 1'b0;
     done    <= 1'b0;
-    r_scl <= 1'b1;
    end
 else
    begin
@@ -102,7 +105,6 @@ else
                                busy  <= 1'b1;
                                state <= start;
                                ack_err <= 1'b0;
-                               r_scl   <= 1'b1;
                                end
                             else
                                begin
@@ -117,7 +119,6 @@ else
                      start: 
                      begin
                          sda_en <= 1'b1; ///send start to slave
-                         scl_en <= 1'b1;
                          case(pulse)
                          0: begin scl_t <= 1'b1; sda_t <= 1'b1; end
                          1: begin scl_t <= 1'b1; sda_t <= 1'b1; end
@@ -137,7 +138,6 @@ else
                    write_addr: 
                    begin
                       sda_en <= 1'b1;  ///send addr to slave
-                      scl_en <= 1'b1;
                       if(bitcount <= 7)
                          begin
                                  case(pulse)
@@ -163,7 +163,6 @@ else
                         state <= ack_1;
                         bitcount <= 0;
                         sda_en <= 1'b0;
-                        scl_en <= 1'b0;
                         end
                    end   
                    
@@ -174,42 +173,19 @@ else
                    begin
                         sda_en <= 1'b0; ///recv ack from slave
                                 case(pulse)
-                                 0: begin 
-                                 scl_en <= 1'b0;
-                                   if(count1 == 20)
-                                     begin
-                                     r_scl <= scl;
-                                     end
-                                   else
-                                      r_scl <= r_scl;
-                                 end
-                                 
-                                 1: begin
-                                 scl_en <= 1'b1;
-                                 scl_t <= (r_scl == 1'b1) ? 1'b0 : 1'b0;
-                                 sda_t <= 1'b0;  r_ack <= sda; 
-                                 end /// check scl status
-                                 2: begin
-                                 scl_en <= 1'b1;
-                                 scl_t <= (r_scl == 1'b1) ? 1'b1 : 1'b0;
-                                 end ///recv ack from slave
-                                 3: begin
-                                 scl_en <= 1'b1;
-                                 scl_t <= (r_scl == 1'b1) ? 1'b1 : 1'b0;
-                                 end
-                                 endcase 
+                                 0: begin scl_t <= 1'b0; sda_t <= 1'b0; end
+                                 1: begin scl_t <= 1'b0; sda_t <= 1'b0; end
+                                 2: begin scl_t <= 1'b1; sda_t <= 1'b0; r_ack <= sda; end ///recv ack from slave
+                                 3: begin scl_t <= 1'b1;  end
+                                 endcase
                    
                        if(count1  == clk_count1*4 - 1)
                                   begin
-                                      if(r_scl == 1'b0)
-                                        begin
-                                        state <= ack_1; 
-                                        end
-                                      else if(r_ack == 1'b0 && data_addr[0] == 1'b0)
+                                      if(r_ack == 1'b0 && data_addr[0] == 1'b0)
                                         begin
                                         state <= write_data;
                                         sda_t <= 1'b0;
-                                        sda_en <= 1'b0; /////write data to slave
+                                        sda_en <= 1'b1; /////write data to slave
                                         bitcount <= 0;
                                         end
                                       else if (r_ack == 1'b0 && data_addr[0] == 1'b1)
@@ -232,8 +208,7 @@ else
                                   end
                      
                    end
-                 
-                                 
+                   
                  write_data: 
                  begin
                    ///write data to slave
@@ -337,7 +312,7 @@ else
                                 case(pulse)
                                  0: begin scl_t <= 1'b0; sda_t <= 1'b0; end
                                  1: begin scl_t <= 1'b0; sda_t <= 1'b0; end
-                                 2: begin scl_t <= 1'b1; sda_t <= 1'b0; r_ack <= 1'b0; end ///recv ack from slave
+                                 2: begin scl_t <= 1'b1; sda_t <= 1'b0; r_ack <= sda; end ///recv ack from slave
                                  3: begin scl_t <= 1'b1;  end
                                  endcase
                    
@@ -348,10 +323,12 @@ else
                                       if(r_ack == 1'b0 )
                                         begin
                                         state <= stop;
+                                        ack_err <= 1'b0;
                                         end
                                       else
                                         begin
                                         state <= stop;
+                                        ack_err <= 1'b1;
                                         end
                                   end
                                  else
@@ -402,22 +379,21 @@ if(sda_en)
 else
    sda = z
 */
-assign scl = (scl_en == 1'b1) ? (scl_t == 0) ? 1'b0 : 1'b1 : 1'bz;
+assign scl = scl_t;
 assign dout = rx_data;
 endmodule
 
 
-/////////////////////Slave
-
+///////////////////// Slave
 `timescale 1ns / 1ps
 
 module i2c_Slave(
-input clk,rst,stretch,
-inout sda,scl,
+input scl,clk,rst,
+inout sda,
 output reg ack_err, done
     );
   
-typedef enum logic [2:0] {idle = 0, read_addr = 1, send_ack1 = 2, send_data = 3, master_ack = 4, read_data = 5, send_ack2 = 6, wait_stretch = 7} state_type;
+typedef enum logic [3:0] {idle = 0, read_addr = 1, send_ack1 = 2, send_data = 3, master_ack = 4, read_data = 5, send_ack2 = 6, wait_p = 7, detect_stop = 8} state_type;
 state_type state = idle;    
 
 reg [7:0] mem [128];
@@ -431,8 +407,7 @@ reg sda_t;
 reg sda_en;
 reg [3:0] bitcnt = 0;
 
-reg scl_en = 0;
-reg scl_t = 0;
+
 
 
 ///////////// initialize mem
@@ -469,11 +444,18 @@ reg i2c_clk = 0;
 
 ///////4x clock
 reg [1:0] pulse = 0;
+reg busy;
 always@(posedge clk)
 begin
       if(rst)
+      begin
+        pulse <= 0;
+        count1 <= 0;
+      end
+      else if(busy == 1'b0)
        begin
-       pulse <= 0;
+       pulse <= 2;
+       count1 <= 202;
        end
       else if(count1  == clk_count1 - 1)
        begin
@@ -502,6 +484,18 @@ begin
 end
 
 
+
+
+
+reg scl_t;
+wire start;
+always@(posedge clk)
+begin
+scl_t <= scl;
+end
+
+assign start = ~scl & scl_t; 
+
 reg r_ack;
 
 always@(posedge clk)
@@ -518,24 +512,36 @@ if(rst)
                   din   <= 8'h00; 
                   ack_err <= 0;
                   done    <= 1'b0;
+                  busy <= 1'b0;
  end
  
  else
     begin
       case(state)
                idle: begin
-                 scl_en <= 1'b0;
-                 sda_en <= 1'b0;
-                  if(scl == 1'b1 && sda == 1'b0 && pulse == 2'b11 && count1 == 399) ///detect start and edge
-                    state <= read_addr;
+                   if(scl == 1'b1 && sda == 1'b0)
+                    begin
+                    busy <= 1'b1;
+                    state <= wait_p; 
+                    end
                    else
+                    begin
                     state <= idle;
+                    end
                end
+               //////////////////////
+               wait_p :  
+               begin
+                if (pulse == 2'b11 && count1 == 399)
+                    state <= read_addr;
+                else
+                    state <= wait_p;
                
+               end
+               /////////////////////////////////////
                read_addr: 
                begin
                          sda_en <= 1'b0;  ///read addr to slave
-                         scl_en <= 1'b0;
                               if(bitcnt <= 7)
                                  begin
                                          case(pulse)
@@ -557,62 +563,20 @@ if(rst)
                                  end
                               else
                                 begin
-                                if(stretch == 1'b1)
-                                  begin
-                                   state <= wait_stretch;
-                                   scl_en <= 1'b1;
-                                   bitcnt <= 0;
-                                  end
-                                else
-                                  begin
-                                    scl_en <= 1'b0;
-                                    state  <= send_ack1;
-                                    bitcnt <= 0;
-                                    sda_en <= 1'b1;
-                                    addr <= r_addr[7:1];
-                                 end
+                                state  <= send_ack1;
+                                bitcnt <= 0;
+                                sda_en <= 1'b1;
+                                addr <= r_addr[7:1];
                                 end
                        
                       end
                       /////////////////////////// send ack
-                      wait_stretch :
-                       begin
-                         
-                                    case(pulse)
-                                         0: begin scl_en <= 1'b1;  scl_t <= 1'b0; end
-                                         1: begin scl_en <= 1'b1;  scl_t <= 1'b0;  end
-                                         2: begin scl_en <= 1'b0;  end 
-                                         3: begin  end
-                                     endcase
-                                  if(count1  == clk_count1*4 - 1)
-                                       begin
-                                          if(stretch == 1'b1)
-                                           begin
-                                           state <= wait_stretch;
-                                           end
-                                          else
-                                            begin
-                                            state <= send_ack1;
-                                            scl_en <= 1'b0;
-                                            sda_en <= 1'b1;
-                                            end
-                                         end
-                                  else
-                                       begin
-                                       state <= wait_stretch;
-                                       end
-                                    
-                       
-                       
-                       end
-                      
                       
                       send_ack1: 
                       begin
-                                    sda_en <= 1'b1;
                                     case(pulse)
-                                         0: begin scl_en <= 1'b1; scl_t <= 1'b1; sda_t <= 1'b0;  end
-                                         1: begin scl_en <= 1'b0; end
+                                         0: begin  sda_t <= 1'b0; end
+                                         1: begin  end
                                          2: begin  end 
                                          3: begin  end
                                      endcase
@@ -683,7 +647,8 @@ if(rst)
                                      endcase
                                   if(count1  == clk_count1*4 - 1)
                                          begin
-                                          state <= idle;
+                                          state <= detect_stop;
+                                          sda_en <= 1'b0;
                                          end
                                   else
                                        begin
@@ -734,23 +699,36 @@ if(rst)
                                                if(r_ack == 1'b1) ///nack
                                                    begin
                                                    ack_err <= 1'b0;
-                                                   state <= idle;
-                                                   done  <= 1'b1;
+                                                   state <= detect_stop;
+                                                   sda_en <= 1'b0;
                                                    end
                                                else
                                                     begin
                                                     ack_err <= 1'b1;
-                                                    state   <= idle;
-                                                    done    <= 1'b1;
+                                                    state   <= detect_stop;
+                                                    sda_en <= 1'b0;
                                                     end
                                          end
                                   else
                                        begin
                                        state <= master_ack;
                                        end
-                   
-                   
+                      end
+                   /////////////////////////////////////////
+                  
+                   detect_stop: 
+                   begin
+                       if(pulse == 2'b11 && count1 == 399)
+                           begin
+                           state <= idle;
+                           busy <= 1'b0;
+                           done <= 1'b1;
+                          end
+                         else
+                           state <= detect_stop;
+                        
                    end
+                   
                  
              
       
@@ -761,17 +739,15 @@ if(rst)
 end
 
 assign sda = (sda_en == 1'b1) ? sda_t : 1'bz;
-assign scl = (scl_en == 1'b1) ? scl_t : 1'bz;
 
 endmodule
 
+////////////////top
 
-
-////////////////Top Module
 `timescale 1ns / 1ps
 
 module i2c_top(
-input clk, rst, newd, op, stretch,
+input clk, rst, newd, op,
 input [6:0] addr,
 input [7:0] din,
 output [7:0] dout,
@@ -781,10 +757,26 @@ output done
 wire sda, scl;
 wire ack_errm, ack_errs;
 
+
 i2c_master master (clk, rst, newd, addr, op, sda, scl, din, dout, busy, ack_errm , done);
-i2c_Slave slave (clk, rst, stretch, sda, scl, ack_errs, );
+i2c_Slave slave (scl, clk, rst, sda, ack_errs, );
 
 assign ack_err = ack_errs | ack_errm;
 
 
 endmodule
+
+///////////////////////////////////////////////////////
+interface i2c_if;
+  
+  logic clk;
+  logic rst;
+  logic newd;
+  logic op;   
+  logic [7:0] din;
+  logic [6:0] addr;
+  logic [7:0] dout;
+  logic  done;
+  logic busy, ack_err;  
+  
+endinterface
